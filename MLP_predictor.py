@@ -93,6 +93,8 @@ class MLPPredictor:
         执行完整的预测流程
         """
         try:
+
+
             # 数据预处理
             processed_df, scaled_data = self._preprocess_data(df)
 
