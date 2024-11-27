@@ -32,17 +32,7 @@ class MLPPredictor:
         self.forecast_points = int(forecast_hours * 60 / int(sample_interval[:-1]))
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
-        # 初始化MLPRegressor
-        self.model = MLPRegressor(
-            hidden_layer_sizes=(12, 6),  # 两个隐藏层
-            activation='relu',  # ReLU激活函数
-            solver='adam',  # Adam优化器
-            max_iter=500,  # 最大迭代次数
-            random_state=1,  # 随机种子
-            early_stopping=True,  # 启用早停
-            validation_fraction=0.1,  # 验证集比例
-            verbose=True  # 显示训练进度
-        )
+
 
     def _preprocess_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, np.ndarray]:
         """

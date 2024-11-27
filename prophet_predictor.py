@@ -31,8 +31,8 @@ class ProphetPredictor:
 
         # 定义参数网格
         self.param_grid = {
-            'changepoint_prior_scale': [0.01, 0.1],
-            'seasonality_prior_scale': [0.1, 1.0],
+            'changepoint_prior_scale': [0.01],
+            'seasonality_prior_scale': [0.1],
             'seasonality_mode': ['multiplicative'],
             'changepoint_range': [0.9],
             'holidays_prior_scale': [0.1]

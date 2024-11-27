@@ -28,7 +28,7 @@ class ModelComparator:
     用于比较不同模型性能的框架类
     """
 
-    def __init__(self, save_dir: str = 'comparison'):
+    def __init__(self, save_dir: str = 'model_comparison'):
         """
         初始化比较器
 

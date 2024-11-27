@@ -1,0 +1,53 @@
+==========check_data_files is running ====================
+==========check_data_files is done ====================
+
+==========process_data is running ====================
+Start with feature engineering.
+Start creating sequences.
+
+Data preprocessing completed:
+Training set shape: (153291, 1440, 19)
+Test set shape: (38323, 1440, 19)
+Number of features: 19
+
+Feature list:
+1. hour_sin
+2. hour_cos
+3. minute_sin
+4. minute_cos
+5. day_of_week_sin
+6. day_of_week_cos
+7. month_sin
+8. month_cos
+9. is_weekend
+10. is_holiday
+11. temperature
+12. temp_rolling_mean_24h
+13. temp_diff
+14. temp_rolling_std_24h
+15. load
+16. load_rolling_mean_24h
+17. load_rolling_std_24h
+18. load_rolling_mean_7d
+19. temp_load_interaction
+==========process_data is done ====================
+
+==========cnn_prediction is running ====================
+Starting CNN prediction process...
+Starting data preprocessing...
+Training CNN with input shape: (196321, 96, 4), output shape: (196321, 96)
+Training CNN model...
+Model training completed
+Generating predictions...
+1/1 [==============================] - ETA: 0s1/1 [==============================] - 0s 68ms/step
+CNN prediction plot saved in model-cnn
+
+CNN Prediction Summary:
+Mean Load: 7427.82 MW
+Standard Deviation: 699.68 MW
+Maximum Load: 8589.69 MW
+Minimum Load: 5925.34 MW
+Minimum Load: 5925.34 MW
+CNN predictions saved to CSV file
+==========cnn_prediction is done ====================
+
