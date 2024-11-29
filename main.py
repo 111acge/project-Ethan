@@ -13,7 +13,7 @@ from functools import wraps
 # 导入所需模块
 from data_preprocessor import NSWDataPreprocessor
 from visualizer import DataVisualizer
-from model_comparator import ModelComparator, run_comparison
+from model_comparator import ModelComparator
 
 # Tee类用于同时输出到控制台和文件
 class Tee:

@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, StackingRegressor
+from xgboost import XGBRegressor
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.base import BaseEstimator, RegressorMixin
 import matplotlib.pyplot as plt
 from typing import Optional, Dict, List, Tuple
 import logging
@@ -9,16 +13,47 @@ from datetime import datetime
 import os
 
 
-class RandomForestsPredictor:
+class KerasLSTMWrapper(BaseEstimator, RegressorMixin):
     """
-    基于Random Forest的集成预测器
-    主要用于预测电力负载，支持温度作为额外的回归变量
+    包装Keras LSTM模型使其符合sklearn的接口
+    """
+
+    def __init__(self, lookback_points=48, n_features=4):
+        self.lookback_points = lookback_points
+        self.n_features = n_features
+        self.model = None
+
+    def _build_model(self):
+        model = Sequential([
+            LSTM(units=64, activation='relu', return_sequences=True,
+                 input_shape=(self.lookback_points, self.n_features)),
+            LSTM(units=32, activation='relu'),
+            Dense(48)  # 假设预测未来48个时间点
+        ])
+        model.compile(optimizer='adam', loss='mse')
+        return model
+
+    def fit(self, X, y):
+        X_reshaped = X.reshape(-1, self.lookback_points, self.n_features)
+        self.model = self._build_model()
+        self.model.fit(X_reshaped, y, epochs=50, batch_size=32, verbose=0)
+        return self
+
+    def predict(self, X):
+        X_reshaped = X.reshape(-1, self.lookback_points, self.n_features)
+        return self.model.predict(X_reshaped)
+
+
+class StackingEnsemblePredictor:
+    """
+    基于Stacking的集成预测器
+    使用XGBoost、Random Forest和LSTM作为基础模型，XGBoost作为元模型
     """
 
     def __init__(self, lookback_hours: int = 48, forecast_hours: int = 48,
                  sample_interval: str = '30T'):
         """
-        初始化预测器
+        初始化 Stacking 集成预测器
         """
         self.lookback_hours = lookback_hours
         self.forecast_hours = forecast_hours
@@ -27,19 +62,44 @@ class RandomForestsPredictor:
         self.forecast_points = int(forecast_hours * 60 / int(sample_interval[:-1]))
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
-        # 初始化 Random Forest 模型
-        self.model = RandomForestRegressor(
-            n_estimators=1000,
-            max_depth=None,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            max_features='sqrt',
-            bootstrap=True,
+        # 基础模型配置
+        base_models = [
+            ('rf', RandomForestRegressor(
+                n_estimators=500,
+                max_depth=None,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                n_jobs=-1,
+                random_state=42
+            )),
+            ('xgb', XGBRegressor(
+                n_estimators=500,
+                learning_rate=0.01,
+                max_depth=6,
+                n_jobs=-1,
+                random_state=42
+            )),
+            ('lstm', KerasLSTMWrapper(
+                lookback_points=self.lookback_points,
+                n_features=4
+            ))
+        ]
+
+        # 元模型使用 XGBoost
+        meta_model = XGBRegressor(
+            n_estimators=200,
+            learning_rate=0.01,
+            max_depth=4,
+            n_jobs=-1
+        )
+
+        # 创建 Stacking 模型
+        self.model = StackingRegressor(
+            estimators=base_models,
+            final_estimator=meta_model,
+            cv=5,
             n_jobs=-1,
-            random_state=42,
-            verbose=0,
-            warm_start=False,
-            max_samples=None
+            verbose=0
         )
 
     def _preprocess_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, np.ndarray]:
@@ -97,10 +157,9 @@ class RandomForestsPredictor:
 
     def predict(self, df: pd.DataFrame, save_dir: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        执行完整的预测流程
+        执行预测
         """
         try:
-            # 数据预处理
             print("Starting data preprocessing...")
             processed_df, scaled_data = self._preprocess_data(df)
             if processed_df is None or scaled_data is None:
@@ -113,12 +172,13 @@ class RandomForestsPredictor:
                 print("Error: No sequences created")
                 return None
 
-            print(f"Training Random Forest with input shape: {X.shape}, output shape: {y.shape}")
+            print(f"Training Stacking Ensemble with input shape: {X.shape}, output shape: {y.shape}")
 
             # 训练模型
-            print("Training Random Forest model...")
-            start_time = time.time()
+            print("Training Stacking Ensemble model...")
+            print("This may take a while as it involves cross-validation and multiple models...")
 
+            start_time = time.time()
             try:
                 self.model.fit(X, y)
                 training_time = time.time() - start_time
@@ -127,19 +187,10 @@ class RandomForestsPredictor:
                 print(f"Error: Model training failed - {str(e)}")
                 return None
 
-            # 准备最后一个时间窗口用于预测
-            try:
-                last_window = scaled_data[-self.lookback_points:].flatten().reshape(1, -1)
-                if last_window.shape[1] != X.shape[1]:
-                    print(f"Error: Input shape mismatch. Expected {X.shape[1]}, got {last_window.shape[1]}")
-                    return None
-            except Exception as e:
-                print(f"Error: Failed to prepare prediction window - {str(e)}")
-                return None
-
-            # 生成预测
+            # 预测
             print("Generating predictions...")
             try:
+                last_window = scaled_data[-self.lookback_points:].flatten().reshape(1, -1)
                 future_prediction = self.model.predict(last_window)
             except Exception as e:
                 print(f"Error: Prediction failed - {str(e)}")
@@ -154,7 +205,7 @@ class RandomForestsPredictor:
                 print(f"Error: Failed to inverse transform predictions - {str(e)}")
                 return None
 
-            # 创建时间索引
+            # 创建时间索引和预测结果 DataFrame
             try:
                 last_timestamp = processed_df['timestamp'].iloc[-1]
                 future_timestamps = pd.date_range(
@@ -162,15 +213,14 @@ class RandomForestsPredictor:
                     periods=self.forecast_points + 1,
                     freq=self.sample_interval
                 )[1:]
-            except Exception as e:
-                print(f"Error: Failed to create timestamps - {str(e)}")
-                return None
 
-            # 创建预测结果DataFrame
-            predictions_df = pd.DataFrame({
-                'timestamp': future_timestamps,
-                'predicted_load': final_predictions
-            })
+                predictions_df = pd.DataFrame({
+                    'timestamp': future_timestamps,
+                    'predicted_load': final_predictions
+                })
+            except Exception as e:
+                print(f"Error: Failed to create prediction dataframe - {str(e)}")
+                return None
 
             # 可视化结果
             try:
@@ -179,9 +229,9 @@ class RandomForestsPredictor:
                 print(f"Warning: Failed to create plots - {str(e)}")
                 print("Continuing without plotting...")
 
-            # 输出预测统计信息和特征重要性
+            # 打印预测统计和模型信息
             self._print_prediction_summary(final_predictions)
-            self._print_feature_importance()
+            self._print_model_information()
 
             return predictions_df
 
@@ -205,9 +255,9 @@ class RandomForestsPredictor:
 
         # 绘制预测数据
         plt.plot(predictions_df['timestamp'], predictions_df['predicted_load'],
-                 label='Random Forest Predicted Load', color='red', alpha=0.6)
+                 label='Stacking Ensemble Predicted Load', color='red', alpha=0.6)
 
-        plt.title(f'{self.forecast_hours}-hour Random Forest Load Forecast')
+        plt.title(f'{self.forecast_hours}-hour Stacking Ensemble Load Forecast')
         plt.xlabel('Time')
         plt.ylabel('Load (MW)')
         plt.legend()
@@ -217,9 +267,9 @@ class RandomForestsPredictor:
 
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
-            plt.savefig(os.path.join(save_dir, f'random_forest_prediction.png'),
+            plt.savefig(os.path.join(save_dir, f'stacking_ensemble_prediction.png'),
                         dpi=300, bbox_inches='tight')
-            print("Random Forest prediction plot saved")
+            print("Stacking Ensemble prediction plot saved")
         else:
             plt.show()
 
@@ -227,29 +277,23 @@ class RandomForestsPredictor:
 
     def _print_prediction_summary(self, predictions: np.ndarray) -> None:
         """
-        打印预测结果的统计信息
+        打印预测结果统计信息
         """
-        print("\nRandom Forest Prediction Summary:")
+        print("\nStacking Ensemble Prediction Summary:")
         print(f"Mean Load: {predictions.mean():.2f} MW")
         print(f"Standard Deviation: {predictions.std():.2f} MW")
         print(f"Maximum Load: {predictions.max():.2f} MW")
         print(f"Minimum Load: {predictions.min():.2f} MW")
 
-    def _print_feature_importance(self) -> None:
+    def _print_model_information(self) -> None:
         """
-        打印特征重要性信息和额外的模型信息
+        打印模型组成信息
         """
-        try:
-            if hasattr(self.model, 'feature_importances_'):
-                print("\nFeature Importance Analysis:")
-                importances = self.model.feature_importances_
-                std = np.std([tree.feature_importances_ for tree in self.model.estimators_], axis=0)
+        print("\nStacking Ensemble Model Configuration:")
+        print("Base Models:")
+        for name, estimator in self.model.estimators_:
+            print(f"- {name}: {type(estimator).__name__}")
 
-                for i, (importance, std_dev) in enumerate(zip(importances, std)):
-                    print(f"Feature {i}: Importance = {importance:.4f} (±{std_dev:.4f})")
-
-                print("\nModel Performance Metrics:")
-                if hasattr(self.model, 'oob_score_'):
-                    print(f"Out-of-bag score: {self.model.oob_score_:.4f}")
-        except Exception as e:
-            print(f"Warning: Could not print feature importance - {str(e)}")
+        print("\nMeta Model:")
+        print(f"- {type(self.model.final_estimator_).__name__}")
+        print(f"- Cross-validation folds: {self.model.cv}")

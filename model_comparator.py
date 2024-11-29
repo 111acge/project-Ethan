@@ -21,6 +21,7 @@ from CNN_predictor import CNNPredictor
 from LSTM_predictor import LSTMPredictor
 from XGBoost_ensemble import XGBoostEnsemblePredictor
 from RandomForests_ensemble import RandomForestsPredictor
+from Stack_ensemble import StackingEnsemblePredictor
 
 
 class ModelComparator:
@@ -82,6 +83,11 @@ class ModelComparator:
                 sample_interval='30T'
             ),
             'Random Forest': RandomForestsPredictor(
+                lookback_hours=48,
+                forecast_hours=48,
+                sample_interval='30T'
+            ),
+            'Stacking Ensemble': StackingEnsemblePredictor(
                 lookback_hours=48,
                 forecast_hours=48,
                 sample_interval='30T'
