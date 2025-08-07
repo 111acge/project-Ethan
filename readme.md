@@ -4,7 +4,7 @@ A deep learning and ensemble learning-based electric load forecasting research p
 
 ## Project Overview
 
-This project implements 13 different prediction models, including traditional time series models, deep learning models, and advanced ensemble learning models for high-precision electric load forecasting. The project adopts rigorous experimental design and evaluates model performance through Bootstrap resampling methods.
+This project implements 13 different prediction models, including traditional time series models, deep learning models, and advanced ensemble learning models for high-precision electric load forecasting. The project adopts rigorous experimental design and evaluates model performance through RMSE.
 
 ## Core Features
 
@@ -182,3 +182,4 @@ For issues or technical support, please refer to:
 - Detailed error output information
 
 ---
+
